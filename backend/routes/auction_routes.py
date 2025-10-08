@@ -1,48 +1,78 @@
-from flask import Blueprint, jsonify, request
-from ai_agent.environment import SimpleAuctionEnv
-from ai_agent.dqn_agent import DQNAgent
+from flask import Blueprint, request, jsonify
+from backend.models.dqn_agent import DQNAgent
+from backend.models.auction_env import AuctionEnvironment
 
 auction_bp = Blueprint('auction_bp', __name__)
 
-env = None
-agents = {}
+# Initialize global auction environment and agents
+env = AuctionEnvironment()
+agents = {
+    'agent_1': DQNAgent(agent_id='agent_1'),
+    'agent_2': DQNAgent(agent_id='agent_2')
+}
 
-@auction_bp.route('/start', methods=['POST'])
-def start_auction():
-    global env, agents
-    data = request.get_json(force=True)
-    num_agents = data.get('num_agents', 3)
-    rounds = data.get('rounds', 5)
+# Store current auction state
+current_auction = None
 
-    env = SimpleAuctionEnv(num_agents=num_agents, rounds=rounds)
-    state = env.reset()
-    agents = {i: DQNAgent(state_size=2*num_agents, action_size=10) for i in range(num_agents)}
-    return jsonify({'state': state})
+@auction_bp.route('/create', methods=['POST'])
+def create_auction():
+    global current_auction
+    data = request.get_json()
 
-@auction_bp.route('/bid', methods=['POST'])
-def get_bid():
-    data = request.get_json(force=True)
+    # Basic English auction setup
+    current_auction = {
+        'id': data.get('id'),
+        'status': 'pending',
+        'startingPrice': data.get('startingPrice', 0),
+        'currentPrice': data.get('startingPrice', 0),
+        'increment': data.get('increment', 10),
+        'bids': [],
+        'participants': [],
+        'winnerId': None,
+        'winnerName': None,
+        'winningPrice': None
+    }
+
+    return jsonify({'message': 'Auction created successfully', 'auction': current_auction}), 201
+
+
+@auction_bp.route('/get-auction', methods=['GET'])
+def get_auction():
+    if not current_auction:
+        return jsonify({'error': 'No active auction'}), 404
+    return jsonify({'state': current_auction})
+
+
+@auction_bp.route('/place-bid', methods=['POST'])
+def place_bid():
+    global current_auction
+    if not current_auction:
+        return jsonify({'error': 'No active auction'}), 404
+
+    data = request.get_json()
     agent_id = data.get('agent_id')
-    state = data.get('state')
-    if agent_id not in agents:
-        return jsonify({'error': 'Invalid agent ID'}), 400
-    bid = agents[agent_id].act(state)
-    return jsonify({'bid': bid})
+    bid_amount = float(data.get('bid_amount', 0))
+    current_price = current_auction['currentPrice']
+    increment = current_auction['increment']
 
-@auction_bp.route('/simulate', methods=['POST'])
-def simulate():
-    global env, agents
-    if env is None:
-        return jsonify({'error': 'Auction not started'}), 400
+    # Validate bid
+    if bid_amount < current_price + increment:
+        return jsonify({'error': f'Bid must be at least {current_price + increment}'}), 400
 
-    state = env.reset()
-    history = []
-    done = False
+    # Accept bid
+    bid = {
+        'bidderId': agent_id,
+        'amount': bid_amount
+    }
+    current_auction['bids'].append(bid)
+    current_auction['currentPrice'] = bid_amount
 
-    while not done:
-        bids = [agent.act(state) for agent in agents.values()]
-        next_state, rewards, done, info = env.step(bids)
-        history.append({'bids': bids, 'rewards': rewards, 'info': info})
-        state = next_state
+    return jsonify({'message': 'Bid accepted', 'new_price': bid_amount})
 
-    return jsonify({'history': history, 'final_state': state})
+
+@auction_bp.route('/reset-env', methods=['GET'])
+def reset_env():
+    global current_auction
+    current_auction = None
+    env.reset()
+    return jsonify({'message': 'Environment reset successfully'})

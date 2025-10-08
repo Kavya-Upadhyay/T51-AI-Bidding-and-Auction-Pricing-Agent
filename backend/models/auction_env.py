@@ -1,6 +1,6 @@
 import numpy as np
 
-class SimpleAuctionEnv:
+class AuctionEnvironment:
     def __init__(self, num_agents=3, rounds=5, max_valuation=100, max_budget=100):
         self.num_agents = num_agents
         self.rounds = rounds

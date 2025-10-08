@@ -1,7 +1,8 @@
 from flask import Flask
-from routes.auction_routes import auction_bp
-
+from backend.routes.auction_routes import auction_bp
+from flask_cors import CORS
 app = Flask(__name__)
+CORS(app)
 app.register_blueprint(auction_bp, url_prefix='/api/auction')
 
 if __name__ == '__main__':
