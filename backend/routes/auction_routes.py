@@ -1,78 +1,124 @@
 from flask import Blueprint, request, jsonify
 from backend.models.dqn_agent import DQNAgent
 from backend.models.auction_env import AuctionEnvironment
+import numpy as np
 
 auction_bp = Blueprint('auction_bp', __name__)
 
-# Initialize global auction environment and agents
-env = AuctionEnvironment()
-agents = {
-    'agent_1': DQNAgent(agent_id='agent_1'),
-    'agent_2': DQNAgent(agent_id='agent_2')
-}
+# In-memory data stores (replace with database in production)
+auctions = {}
+agents = {}
 
-# Store current auction state
-current_auction = None
+# DQN agent instance for AI bidding
+dqn_agent = DQNAgent(agent_id='1', state_size=4, action_size=10)  # match your config
+# load_model(dqn_agent)  # load pretrained model if exists
 
+
+# ----------------------------
+# Create Auction
+# ----------------------------
 @auction_bp.route('/create', methods=['POST'])
 def create_auction():
-    global current_auction
     data = request.get_json()
+    auction_id = data.get('id')
 
-    # Basic English auction setup
-    current_auction = {
-        'id': data.get('id'),
-        'status': 'pending',
-        'startingPrice': data.get('startingPrice', 0),
-        'currentPrice': data.get('startingPrice', 0),
-        'increment': data.get('increment', 10),
-        'bids': [],
-        'participants': [],
-        'winnerId': None,
-        'winnerName': None,
-        'winningPrice': None
+    # Store auction in memory with default values as needed
+    auctions[auction_id] = {
+        'id': auction_id,
+        'title': data.get('title'),
+        'description': data.get('description'),
+        'format': data.get('format', 'english'),
+        'startingPrice': data.get('startingPrice'),
+        'reservePrice': data.get('reservePrice'),
+        'increment': data.get('increment'),
+        'startTime': data.get('startTime'),
+        'endTime': data.get('endTime'),
+        'currentPrice': data.get('currentPrice'),
+        'status': data.get('status', 'pending'),
+        'bids': data.get('bids', []),
+        'participants': data.get('participants', []),
     }
+    print(f"✅ Auction created: {auction_id}")
+    return jsonify({'auction': auctions[auction_id]}), 201
 
-    return jsonify({'message': 'Auction created successfully', 'auction': current_auction}), 201
 
-
+# ----------------------------
+# Get All Auctions
+# ----------------------------
 @auction_bp.route('/get-auction', methods=['GET'])
-def get_auction():
-    if not current_auction:
-        return jsonify({'error': 'No active auction'}), 404
-    return jsonify({'state': current_auction})
+def get_all_auctions():
+    print(f"📦 Returning {len(auctions)} auctions")
+    return jsonify({'auctions': list(auctions.values())}), 200
 
 
+# ----------------------------
+# Place Bid (Human)
+# ----------------------------
 @auction_bp.route('/place-bid', methods=['POST'])
 def place_bid():
-    global current_auction
-    if not current_auction:
-        return jsonify({'error': 'No active auction'}), 404
+    data = request.json
+    auction_id = data.get('auction_id')
+    bidder_id = data.get('bidder_id')
+    amount = float(data.get('amount', 0))
 
-    data = request.get_json()
+    if auction_id not in auctions:
+        return jsonify({'error': 'Auction not found'}), 404
+
+    auction = auctions[auction_id]
+    current_price = auction.get('currentPrice', 0)
+    increment = auction.get('increment', 1)
+
+    if amount < current_price + increment:
+        return jsonify({'error': 'Bid too low'}), 400
+
+    auction.setdefault('bids', []).append({
+        'bidderId': bidder_id,
+        'amount': amount
+    })
+    auction['currentPrice'] = amount
+    auctions[auction_id] = auction
+
+    return jsonify({'message': 'Bid placed successfully', 'auction': auction}), 200
+
+
+# ----------------------------
+# AI Bid Route
+# ----------------------------
+@auction_bp.route('/ai-bid', methods=['POST'])
+def ai_bid():
+    data = request.json
     agent_id = data.get('agent_id')
-    bid_amount = float(data.get('bid_amount', 0))
-    current_price = current_auction['currentPrice']
-    increment = current_auction['increment']
+    auction_state = data.get('auction_state')
 
-    # Validate bid
-    if bid_amount < current_price + increment:
-        return jsonify({'error': f'Bid must be at least {current_price + increment}'}), 400
+    if not auction_state:
+        return jsonify({'error': 'Missing auction state'}), 400
 
-    # Accept bid
-    bid = {
-        'bidderId': agent_id,
-        'amount': bid_amount
-    }
-    current_auction['bids'].append(bid)
-    current_auction['currentPrice'] = bid_amount
+    state = np.array([
+        auction_state.get('current_price', 0),
+        auction_state.get('increment', 1),
+        auction_state.get('remaining_budget', 0),
+        auction_state.get('time_left', 0)
+    ], dtype=np.float32)
 
-    return jsonify({'message': 'Bid accepted', 'new_price': bid_amount})
+    action, bid_amount = dqn_agent.act(state)
+    print(f"[AI Agent {agent_id}] RL bid: {bid_amount}")
+
+    return jsonify({'agent_id': agent_id, 'bid_amount': float(bid_amount)}), 200
 
 
-@auction_bp.route('/reset-env', methods=['GET'])
-def reset_env():
-    global current_auction
-    current_auction = None
-    env.reset()
-    return jsonify({'message': 'Environment reset successfully'})
+# ----------------------------
+# Start Auction
+# ----------------------------
+@auction_bp.route('/start', methods=['POST'])
+def start_auction():
+    data = request.get_json()
+    auction_id = data.get('auction_id')
+
+    if auction_id not in auctions:
+        return jsonify({'error': 'Auction not found'}), 404
+
+    auction = auctions[auction_id]
+    auction['status'] = 'active'
+    print(f"🔁 Auction {auction_id} started.")
+
+    return jsonify({'message': f'Auction {auction_id} started successfully'}), 200
