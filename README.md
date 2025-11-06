@@ -164,8 +164,4 @@ auction_ai/
 
 The project successfully demonstrates how **Artificial Intelligence** can automate and optimize online bidding systems, improving fairness, efficiency, and decision-making quality in real-world auction environments.
 
----
-
-Would you like me to **add architecture diagrams** (system flow, DQN model flow, and frontend-backend interaction) directly inside the README (as Markdown diagrams or embedded images)?
-That would make it perfect for a college submission or GitHub presentation.
 
