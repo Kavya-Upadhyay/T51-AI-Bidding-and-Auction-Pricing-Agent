@@ -152,13 +152,7 @@ auction_ai/
 
 ---
 
-## 👨‍💻 Contributors
 
-**Ansh Agarwal**
-🎓 Student Project — AI & ML-Based Systems Design
-📅 November 2025
-
----
 
 ## 🏁 Conclusion
 
